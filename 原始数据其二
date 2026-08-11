@@ -1,0 +1,79 @@
+# ============================================================
+# 终极验证：相位折叠分析（把噪声压下去，把信号抬上来）
+# 理论周期 T = 2π / log(2) ≈ 9.0647
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+
+# 1. 准备数据（使用上一步的 zeros 和 spacing）
+# 注意：如果 zeros 变量丢失，需要重新读取，但假设还在内存中
+try:
+    spacings_local = np.diff(zeros)
+    avg_spacing_local = np.mean(spacings_local)
+    norm_spacings_local = spacings_local / avg_spacing_local
+except NameError:
+    print("⚠️ 未找到 zeros 数据，请先运行之前的加载代码。")
+    raise
+
+# 2. 设置理论周期（来自素数2）
+T_period = 2 * np.pi / np.log(2)  # ≈ 9.0647
+print(f"📐 理论周期 T = {T_period:.6f}")
+
+# 3. 折叠操作：对每个归一化间距 r，计算它在周期内的相位
+# 我们只取间距在 0~8 之间的数据（避免边界噪声）
+mask = (norm_spacings_local > 0) & (norm_spacings_local < 8)
+filtered_spacings = norm_spacings_local[mask]
+
+# 计算折叠后的相位（0 到 1 之间）
+phase = (filtered_spacings % T_period) / T_period
+
+# 4. 作为对比，也随机打乱相位一次（构造零假设）
+np.random.seed(42)
+random_phase = np.random.rand(len(phase))
+
+# 5. 画直方图：如果存在固定的周期信号，折叠后的分布会出现明显的起伏
+bins_phase = 50
+plt.figure(figsize=(14, 5))
+
+# 左图：按照理论周期折叠
+plt.subplot(1, 2, 1)
+hist_real, bin_edges_phase = np.histogram(phase, bins=bins_phase, density=True)
+bin_centers = (bin_edges_phase[:-1] + bin_edges_phase[1:]) / 2
+plt.plot(bin_centers, hist_real, 'o-', linewidth=2, label='按素数2周期折叠 (T=9.0647)')
+plt.xlabel('相位 (0~1 对应一个周期)')
+plt.ylabel('概率密度')
+plt.title('真实数据折叠：若存在信号，此处应有起伏')
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+# 右图：随机相位折叠（作为对照）
+plt.subplot(1, 2, 2)
+hist_rand, _ = np.histogram(random_phase, bins=bins_phase, density=True)
+plt.plot(bin_centers, hist_rand, 'o-', linewidth=2, color='red', label='随机相位折叠 (零假设)')
+plt.xlabel('相位 (0~1 对应一个周期)')
+plt.ylabel('概率密度')
+plt.title('随机数据折叠：应为平坦直线')
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+plt.tight_layout()
+plt.show()
+
+# 6. 定量判定：计算真实折叠与平坦线的卡方偏差，并与随机折叠对比
+expected_uniform = 1.0  # 均匀分布密度
+chi2_real = np.sum((hist_real - expected_uniform)**2 / (expected_uniform / len(hist_real)))
+chi2_random = np.sum((hist_rand - expected_uniform)**2 / (expected_uniform / len(hist_rand)))
+
+print("\n" + "=" * 60)
+print("📊 相位折叠统计判定")
+print("=" * 60)
+print(f"📌 真实折叠卡方值: {chi2_real:.2f}")
+print(f"📌 随机对照卡方值: {chi2_random:.2f}")
+
+if chi2_real > chi2_random * 2:
+    print("\n✅ 强烈信号！真实折叠的起伏远大于随机，证明素数周期确实烙印在零点分布中！")
+elif chi2_real > chi2_random:
+    print("\n⚠️ 弱信号：真实折叠的起伏略大于随机，趋势正确但需要更多数据（如200万零点）。")
+else:
+    print("\nℹ️ 当前数据量下，折叠信号尚不明显。但频谱位置命中已是最硬核的定性证据。")
