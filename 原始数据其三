@@ -1,0 +1,106 @@
+# ============================================================
+# 修正版：Lomb-Scargle 周期图 + 置换检验（无窥探）
+# 修复：处理 lombscargle 返回标量的情况
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import lombscargle
+from scipy.stats import gaussian_kde
+
+# 1. 确保数据存在
+try:
+    spacings = np.diff(zeros)
+    avg_spacing = np.mean(spacings)
+    norm_spacings = spacings / avg_spacing
+    print(f"✅ 数据加载成功，共 {len(norm_spacings)} 个间距值")
+except NameError:
+    print("❌ 未找到 zeros 数据，请先运行之前的下载代码。")
+    raise
+
+# 2. 构造残差序列（用核密度估计替代直方图）
+r_grid = np.linspace(0, 8, 500)
+kde_data = gaussian_kde(norm_spacings, bw_method=0.1)
+kde_values = kde_data(r_grid)
+
+def gue_pdf(r):
+    return (np.pi * r / 2) * (1 - (np.pi * r / 4)**2) * np.exp(-np.pi * r**2 / 16)
+
+gue_values = gue_pdf(r_grid)
+residual_grid = kde_values - gue_values
+
+time = r_grid
+signal = residual_grid
+print(f"✅ 构造残差序列完成，网格点数: {len(time)}")
+
+# 3. 目标频率：素数2的理论值
+f_theory = np.log(2) / (2 * np.pi)  # ≈ 0.1103
+print(f"📐 理论目标频率: {f_theory:.6f}")
+
+# 4. 计算目标频率处的 Lomb-Scargle 功率（修复索引问题）
+angular_freq = 2 * np.pi * f_theory
+# 关键修复：直接计算，不取 [0]，因为标量没有索引
+power_target = lombscargle(time, signal, [angular_freq])
+# 但为了统一处理，我们将其转为标量
+if np.ndim(power_target) == 0:
+    power_target = float(power_target)
+else:
+    power_target = power_target[0]
+
+print(f"📍 目标频率处的原始功率: {power_target:.6f}")
+
+# 5. 置换检验
+n_permutations = 500
+powers_null = np.zeros(n_permutations)
+np.random.seed(42)
+print(f"⏳ 正在进行 {n_permutations} 次置换检验（约1分钟）...")
+
+for i in range(n_permutations):
+    shuffled_signal = np.random.permutation(signal)
+    pwr = lombscargle(time, shuffled_signal, [angular_freq])
+    if np.ndim(pwr) == 0:
+        powers_null[i] = float(pwr)
+    else:
+        powers_null[i] = pwr[0]
+    if (i+1) % 100 == 0:
+        print(f"  已完成 {i+1}/{n_permutations}")
+
+# 6. 结果判定
+mean_null = np.mean(powers_null)
+std_null = np.std(powers_null)
+p_value = np.sum(powers_null >= power_target) / n_permutations
+
+print("\n" + "=" * 60)
+print("📊 Lomb-Scargle 无窥探验证结果")
+print("=" * 60)
+print(f"📌 真实目标频率功率:     {power_target:.6f}")
+print(f"📌 随机打乱平均功率:     {mean_null:.6f}")
+print(f"📌 随机打乱标准差:       {std_null:.6f}")
+print(f"📌 置换检验 p-value:     {p_value:.4f}")
+
+# 7. 可视化
+plt.figure(figsize=(10, 5))
+plt.hist(powers_null, bins=30, density=True, alpha=0.7, color='gray', label='随机打乱分布')
+plt.axvline(x=power_target, color='red', linewidth=3, label=f'真实功率 (p={p_value:.3f})')
+plt.xlabel('功率值')
+plt.ylabel('概率密度')
+plt.title('置换检验：真实信号功率是否落在随机分布尾部？')
+plt.legend()
+plt.grid(True, alpha=0.2)
+plt.show()
+
+# 8. 最终解读
+print("\n" + "=" * 60)
+print("🎯 最终现实意义判定")
+print("=" * 60)
+if p_value < 0.05:
+    print("✅ 统计显著（p < 0.05）：")
+    print("   在精确的素数频率 log2/(2π) 处，存在超出随机预期的功率。")
+    print("   这意味着：素数2的周期印记在零点分布中确实存在（微弱但真实）。")
+elif p_value < 0.1:
+    print("⚠️ 边缘显著（p ~ 0.1）：")
+    print("   趋势存在但不够强。建议将零点数量提升至 200 万进行最终判断。")
+else:
+    print("ℹ️ 当前未检测到显著信号。")
+    print("   这可能是数据量不足（20万对10亿量级来说仍太小），或信号本身极弱。")
+    print("   但无论如何，你的哲学框架已经催生了一个可检验的数学猜想。")
