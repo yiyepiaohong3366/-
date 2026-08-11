@@ -1,0 +1,104 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import lombscargle
+from scipy.stats import gaussian_kde
+import urllib.request
+import os
+
+# 1. 加载数据 (以 Odlyzko 的 zeros6 为例)
+# 注意：下载 35MB 文件可能需要一些时间
+url = "https://www-users.cse.umn.edu/~odlyzko/zeta_tables/zeros6"
+filename = "zeros6.txt"
+
+if not os.path.exists(filename):
+    print(f"⏳ 正在下载 {filename} (约 35MB)，请耐心等待...")
+    urllib.request.urlretrieve(url, filename)
+    print("✅ 下载完成。")
+
+# 读取数据 (每行一个虚部值)
+print("⏳ 正在读取数据...")
+zeros = []
+with open(filename, "r") as f:
+    for line in f:
+        line = line.strip()
+        if line:
+            try:
+                zeros.append(float(line))
+            except ValueError:
+                continue
+print(f"✅ 成功加载 {len(zeros)} 个零点虚部值")
+
+# 2. 计算归一化间距
+spacings = np.diff(zeros)
+avg_spacing = np.mean(spacings)
+norm_spacings = spacings / avg_spacing
+print(f"✅ 归一化完成，平均间距 = {avg_spacing:.6f}")
+
+# 3. 构造残差序列 (KDE 方法)
+print("⏳ 正在构造残差序列...")
+r_grid = np.linspace(0, 8, 500)
+kde = gaussian_kde(norm_spacings, bw_method=0.1)
+kde_values = kde(r_grid)
+
+def gue_pdf(r):
+    return (np.pi * r / 2) * (1 - (np.pi * r / 4)**2) * np.exp(-np.pi * r**2 / 16)
+
+residual = kde_values - gue_pdf(r_grid)
+print("✅ 残差序列构造完成")
+
+# 4. 对多个素数频率进行 Lomb-Scargle 检验
+prime_list = [2, 3, 5, 7, 11, 13, 17, 19]
+n_permutations = 200  # 为节省时间，设为200次；实际研究应设为1000次以上
+
+print(f"\n⏳ 开始对 {len(prime_list)} 个素数频率进行置换检验 (每次{n_permutations}次置换)...")
+
+results = {}
+for p in prime_list:
+    f_theory = np.log(p) / (2 * np.pi)
+    angular_freq = 2 * np.pi * f_theory
+    
+    # 计算真实功率
+    power_obs = lombscargle(r_grid, residual, [angular_freq])
+    power_obs = float(power_obs[0]) if np.ndim(power_obs) > 0 else float(power_obs)
+    
+    # 置换检验
+    powers_null = np.zeros(n_permutations)
+    for i in range(n_permutations):
+        shuffled_residual = np.random.permutation(residual)
+        pwr = lombscargle(r_grid, shuffled_residual, [angular_freq])
+        powers_null[i] = float(pwr[0]) if np.ndim(pwr) > 0 else float(pwr)
+    
+    # 计算 p 值
+    p_value = np.sum(powers_null >= power_obs) / n_permutations
+    results[p] = {'freq': f_theory, 'power': power_obs, 'p_value': p_value}
+    print(f"  素数 {p}: 频率={f_theory:.6f}, p值={p_value:.4f}")
+
+# 5. Bonferroni 校正 & 结果展示
+print("\n" + "=" * 60)
+print("📊 多重比较校正 (Bonferroni) 结果")
+print("=" * 60)
+
+alpha = 0.05
+n_tests = len(prime_list)
+bonferroni_alpha = alpha / n_tests
+print(f"显著性水平 α = {alpha}, 检验次数 = {n_tests}")
+print(f"Bonferroni 校正后阈值 = {bonferroni_alpha:.6f}")
+
+significant_primes = []
+for p, res in results.items():
+    is_sig = res['p_value'] < bonferroni_alpha
+    status = "✅ 显著" if is_sig else "❌ 不显著"
+    print(f"  素数 {p}: p值 = {res['p_value']:.4f} -> {status}")
+    if is_sig:
+        significant_primes.append(p)
+
+# 6. 最终结论
+print("\n" + "=" * 60)
+print("🎯 最终结论")
+print("=" * 60)
+if significant_primes:
+    print(f"✅ 在 Bonferroni 校正后，以下素数频率仍然显著: {significant_primes}")
+    print("   这为 '素数频率系统性印记' 的假说提供了强有力的证据。")
+else:
+    print("❌ 在 Bonferroni 校正后，没有素数频率达到显著性标准。")
+    print("   这可能是因为信号太弱，需要更大的数据集 (如 10^9 级别)。")
