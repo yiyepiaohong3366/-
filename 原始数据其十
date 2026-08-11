@@ -1,0 +1,7 @@
+mask_narrow = (freqs > 0.10) & (freqs < 0.28)
+corr_narrow, p_narrow = pearsonr(
+    power_data_norm[mask_narrow],
+    power_theory_signed_norm[mask_narrow]
+)
+
+print(f"窄带 (0.10-0.28) 相关系数: {corr_narrow:.4f} (p={p_narrow:.6f})")
