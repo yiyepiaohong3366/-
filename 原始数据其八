@@ -1,0 +1,52 @@
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import lombscargle
+
+# 假设 freqs, power_data_norm 已存在（上一段代码已计算）
+
+# 1. 定义所有相关频率：单素数、双素数组合、素数平方
+freqs_all = []
+labels_all = []
+
+# 单素数
+for p in [2, 3, 5, 7]:
+    f = np.log(p) / (2 * np.pi)
+    freqs_all.append(f)
+    labels_all.append(f'log{p}')
+
+# 双素数组合 (a*b)
+combs = [(2,3), (2,5), (2,7), (3,5), (3,7), (5,7)]
+for a, b in combs:
+    f = np.log(a * b) / (2 * np.pi)
+    freqs_all.append(f)
+    labels_all.append(f'log{a*b}')
+
+# 素数平方 (p^2)
+for p in [2, 3, 5]:
+    f = np.log(p**2) / (2 * np.pi)
+    freqs_all.append(f)
+    labels_all.append(f'log{p^2}')
+
+# 2. 在频谱图上标注所有在 0.05-0.35 范围内的频率
+plt.figure(figsize=(14, 6))
+plt.plot(freqs, power_data_norm, 'b-', linewidth=1.2, alpha=0.6, label='实际频谱')
+
+# 标注组合频率
+for f, label in zip(freqs_all, labels_all):
+    if 0.05 < f < 0.35:
+        plt.axvline(x=f, color='red', linestyle='--', alpha=0.5, linewidth=0.8)
+        plt.text(f, 4.5, label, rotation=90, fontsize=8, alpha=0.7)
+
+plt.xlim(0.05, 0.35)
+plt.ylim(0, 5)
+plt.xlabel('频率 f')
+plt.ylabel('归一化功率')
+plt.title('组合频率标注：寻找干涉模式')
+plt.grid(True, alpha=0.2)
+plt.show()
+
+# 3. 打印所有在 0.05-0.35 范围内的组合频率
+print("\n在频谱范围内的组合频率：")
+for f, label in zip(freqs_all, labels_all):
+    if 0.05 < f < 0.35:
+        print(f"{label}: {f:.4f}")
