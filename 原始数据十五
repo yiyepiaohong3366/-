@@ -1,0 +1,51 @@
+# ============================================================
+# 终极考验的真正形态：加权叠加模型权重反演
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize
+from scipy.stats import pearsonr
+
+# 假设 data_spectrum 和 feature_spectra 已存在
+# 这里手动构造特征谱矩阵
+
+feature_names = ['χ₃','χ₄','χ₇','χ₈','χ₉','χ₁₁','χ₁₂','χ₁₃','χ₁₆']
+feature_spectra = []  # 每个特征的归一化功率谱
+
+for name in feature_names:
+    # 从之前的结果中提取特征谱（需要预先存储）
+    # 这里简化：使用之前的 power_theo_norm 变量
+    feature_spectra.append(power_theo_norm)  # 注意：需要对应每个特征
+
+# 构建特征矩阵 X (N_freq × N_features)
+X = np.column_stack(feature_spectra)
+y = power_data_norm  # 目标频谱
+
+# 权重拟合（最小二乘，带 L1 正则化以促进稀疏性）
+def loss(w):
+    return np.mean((y - X @ w)**2) + 0.01 * np.sum(np.abs(w))
+
+res = minimize(loss, np.ones(len(feature_names)), method='L-BFGS-B')
+weights = res.x
+
+# 计算加权叠加模型的相关系数
+y_pred = X @ weights
+corr_weighted, _ = pearsonr(y[mask], y_pred[mask])
+
+print("\n" + "=" * 60)
+print("📊 加权叠加模型结果")
+print("=" * 60)
+for name, w in zip(feature_names, weights):
+    print(f"{name}: 权重 = {w:.4f}")
+print(f"\n加权叠加模型相关系数: {corr_weighted:.4f}")
+
+# 检查权重是否服从某种规律
+m_values = [3,4,7,8,9,11,12,13,16]
+plt.figure(figsize=(10,4))
+plt.plot(m_values, weights, 'bo-')
+plt.xlabel('模数 m')
+plt.ylabel('拟合权重 w_m')
+plt.title('权重 vs 模数')
+plt.grid(True)
+plt.show()
