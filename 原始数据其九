@@ -1,0 +1,76 @@
+# ============================================================
+# 最后一战：狄利克雷特征符号干涉模型
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import lombscargle
+from scipy.special import j1
+from scipy.stats import pearsonr
+
+# 假设 r_grid, residual, freqs, power_data_norm 已存在
+# 如果未定义，请先运行之前的数据加载部分
+
+# 1. 定义模4狄利克雷特征
+def chi4(p):
+    if p % 4 == 1:
+        return 1
+    elif p % 4 == 3:
+        return -1
+    else:  # p=2
+        return 0  # 特殊处理
+
+# 2. 带符号的理论残差
+alpha = 1 / (2 * np.pi)
+primes = [2, 3, 5, 7, 11, 13, 17, 19]
+theoretical_residual_signed = np.zeros_like(r_grid)
+
+for p in primes:
+    logp = np.log(p)
+    # 关键修改：乘以 chi4(p)
+    sign = chi4(p)
+    if p == 2:
+        sign = 1  # 素数2单独处理（保持原样）
+    term = sign * alpha * (logp**3 / (p**1.5)) * r_grid * j1(r_grid * logp)
+    theoretical_residual_signed += term
+
+# 3. 计算带符号的理论频谱
+power_theory_signed = lombscargle(r_grid, theoretical_residual_signed, 2 * np.pi * freqs)
+power_theory_signed_norm = power_theory_signed / np.mean(power_theory_signed)
+
+# 4. 对比：原始理论、带符号理论、实际数据
+plt.figure(figsize=(14, 6))
+
+plt.plot(freqs, power_data_norm, 'b-', linewidth=1.5, label='实际频谱 (数据)', alpha=0.8)
+plt.plot(freqs, power_theory_signed_norm, 'r--', linewidth=2, label='带 χ₄ 符号的理论谱')
+
+# 标注关键素数频率
+for p in [2, 3, 5]:
+    f = np.log(p) / (2 * np.pi)
+    plt.axvline(x=f, color='gray', linestyle=':', alpha=0.5)
+
+plt.xlim(0.05, 0.35)
+plt.xlabel('频率 f')
+plt.ylabel('归一化功率')
+plt.title('最后一战：狄利克雷特征符号模型 vs 实际数据')
+plt.legend()
+plt.grid(True, alpha=0.2)
+plt.show()
+
+# 5. 定量：计算相关系数（在实际与带符号理论之间）
+# 注意：只取频率范围内（0.05-0.35）的数据进行相关分析
+mask = (freqs > 0.05) & (freqs < 0.35)
+corr, p_val = pearsonr(power_data_norm[mask], power_theory_signed_norm[mask])
+
+print("\n" + "=" * 60)
+print("⚔️ 最后一战结果")
+print("=" * 60)
+print(f"实际频谱与带符号理论谱的相关系数: {corr:.4f} (p={p_val:.6f})")
+
+if corr > 0.7:
+    print("✅ 命中！狄利克雷特征符号模型与实际数据高度吻合。")
+    print("   这意味着：素数在临界线上的投影，确实带有模4相位特征。")
+elif corr > 0.4:
+    print("⚠️ 趋势正确，但拟合度不够理想。可能需要更高阶的相位因子。")
+else:
+    print("❌ 当前模型未能解释所有结构。但你已经接近边界——继续。")
