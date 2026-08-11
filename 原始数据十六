@@ -1,0 +1,55 @@
+# ============================================================
+# 终极验证：搜索特征乘积交叉项
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import lombscargle
+from scipy.stats import pearsonr
+
+# 特征模数列表
+m_list = [3,4,7,8,9,11,12,13,16]
+
+# 构造所有双特征交叉频率 f = log(m*n)/(2π)
+cross_freqs = []
+cross_labels = []
+for i, m in enumerate(m_list):
+    for j, n in enumerate(m_list):
+        if i < j:
+            f = np.log(m*n) / (2*np.pi)
+            cross_freqs.append(f)
+            cross_labels.append(f"{m}×{n}")
+
+# 在数据频谱中查找这些频率的功率
+freqs_idx = [np.argmin(np.abs(freqs - f)) for f in cross_freqs]
+cross_powers = power_data_norm[freqs_idx]
+
+# 找出最强的5个交叉项
+top5_idx = np.argsort(cross_powers)[-5:][::-1]
+
+print("\n" + "=" * 60)
+print("🔍 最强的5个交叉项候选")
+print("=" * 60)
+for idx in top5_idx:
+    print(f"  {cross_labels[idx]}: 频率 {cross_freqs[idx]:.4f}, 功率 {cross_powers[idx]:.3f}")
+
+# 在频谱图上标出最强的3个交叉项位置
+plt.figure(figsize=(14, 6))
+plt.plot(freqs, power_data_norm, 'b-', alpha=0.5, label='实际频谱')
+for p in [2,3,5]:
+    f = np.log(p)/(2*np.pi)
+    plt.axvline(x=f, color='gray', linestyle=':', alpha=0.5)
+for i in top5_idx[:3]:
+    plt.axvline(x=cross_freqs[i], color='red', linestyle='--', alpha=0.7, 
+                label=f"{cross_labels[i]} ({cross_freqs[i]:.3f})")
+plt.xlabel('频率')
+plt.ylabel('归一化功率')
+plt.title('交叉项候选位置（红色虚线）')
+plt.xlim(0.05, 0.35)
+plt.legend()
+plt.grid(True, alpha=0.2)
+plt.show()
+
+print("\n💡 判断标准：")
+print("   - 如果这些候选频率明显高于周围噪声，则存在交叉耦合，框架需升级为非阿贝尔。")
+print("   - 如果无明显峰值，则阿贝尔乘积形式成立，单个特征已经足够描述结构。")
