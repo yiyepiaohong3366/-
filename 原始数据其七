@@ -1,0 +1,85 @@
+# ============================================================
+# 理论频谱 vs 实际频谱：寻找消失的耦合项
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.signal import lombscargle
+from scipy.special import j1  # 修正：正确导入 j1
+
+# 假设 r_grid 和 residual 已经存在（来自前面的代码）
+# 如果还没有，请先运行数据加载和残差计算部分。
+
+# 1. 生成理论残差曲线（仅基于你的修正项公式）
+alpha = 1 / (2 * np.pi)
+primes_theory = [2, 3, 5]  # 只用已知显著的前三个
+theoretical_residual = np.zeros_like(r_grid)
+
+for p in primes_theory:
+    logp = np.log(p)
+    # 你的修正项公式，使用 scipy.special.j1
+    term = alpha * (logp**3 / (p**1.5)) * r_grid * j1(r_grid * logp)
+    theoretical_residual += term
+
+print("✅ 理论残差曲线生成完成")
+
+# 2. 计算理论频谱（在全部频率范围内）
+freqs = np.linspace(0.05, 0.5, 2000)
+# 真实数据频谱
+power_data = lombscargle(r_grid, residual, 2 * np.pi * freqs)
+power_data_norm = power_data / np.mean(power_data)
+
+# 理论频谱
+power_theory = lombscargle(r_grid, theoretical_residual, 2 * np.pi * freqs)
+power_theory_norm = power_theory / np.mean(power_theory)
+
+# 3. 可视化对比
+plt.figure(figsize=(15, 6))
+
+# 子图1：两条残差曲线的直接对比（时域）
+plt.subplot(1, 2, 1)
+plt.plot(r_grid, residual, 'b-', alpha=0.5, label='实际残差 (数据)')
+plt.plot(r_grid, theoretical_residual * 2, 'r--', linewidth=2, label='理论残差 (×2放大)')
+plt.xlabel('归一化间距 r')
+plt.ylabel('残差 Δg(r)')
+plt.title('时域对比：实际振荡幅度远大于理论预测')
+plt.legend()
+plt.grid(True, alpha=0.3)
+
+# 子图2：频谱对比（频域）
+plt.subplot(1, 2, 2)
+plt.plot(freqs, power_data_norm, 'b-', linewidth=1.5, label='实际频谱 (数据)')
+plt.plot(freqs, power_theory_norm, 'r--', linewidth=2, label='理论频谱 (修正项)')
+
+# 标记关键频率
+for p, color in zip([2, 3, 5], ['red', 'green', 'orange']):
+    f_p = np.log(p) / (2 * np.pi)
+    plt.axvline(x=f_p, color=color, linestyle=':', alpha=0.7, 
+                label=f'freq log{p}/2π' if p == 2 else "")
+
+plt.xlabel('频率 f')
+plt.ylabel('归一化功率')
+plt.title('频域对比：理论峰是否覆盖了实际峰？')
+plt.xlim(0.05, 0.35)
+plt.legend()
+plt.grid(True, alpha=0.2)
+
+plt.tight_layout()
+plt.show()
+
+# 4. 定量分析：理论是否低估了功率？
+print("\n" + "=" * 60)
+print("📊 理论与实际功率对比")
+print("=" * 60)
+for p in [2, 3, 5]:
+    f_p = np.log(p) / (2 * np.pi)
+    idx = np.argmin(np.abs(freqs - f_p))
+    print(f"素数 {p}:")
+    print(f"  理论功率: {power_theory_norm[idx]:.3f}")
+    print(f"  实际功率: {power_data_norm[idx]:.3f}")
+    ratio = power_data_norm[idx] / power_theory_norm[idx]
+    print(f"  比值 (实际/理论): {ratio:.2f}")
+    print()
+
+print("如果比值远大于1，说明实际数据中存在理论未包含的额外耦合项。")
+print("这些额外项可能来自素数组合频率 (如 log2 + log3, 2*log2 等)。")
