@@ -1,0 +1,113 @@
+# ============================================================
+# 完整修正版：基于 L(1/2, χ_m) 的权重模型验证
+# ============================================================
+
+import numpy as np
+from scipy.stats import pearsonr
+
+# 1. 重新定义 L-中心值和根数
+L_center = {
+    3: 0.4800,
+    4: 0.6670,
+    7: 0.6920,
+    8: 0.7320,
+    13: 0.7560,
+    16: 0.7780,
+}
+
+epsilon = {
+    3: -1,
+    4: -1,
+    7: +1,
+    8: -1,
+    13: -1,
+    16: -1,
+}
+
+# 2. 定义 build_weights 函数
+def build_weights(beta):
+    return {m: epsilon[m] * (L_center[m] ** beta) for m in L_center}
+
+# 3. 特征模数 → 实际键名映射（与 feature_spectra_test 保持一致）
+key_map = {
+    3: 'χ₃',
+    4: 'χ₄',
+    7: 'χ₇',
+    8: 'χ₈',
+    13: 'χ₁₃',
+    16: 'χ₁₆'
+}
+
+# 4. 检查关键变量是否存在
+try:
+    freqs
+except NameError:
+    print("❌ 变量 'freqs' 未定义。请先运行之前的盲测代码。")
+    raise
+
+try:
+    power_data4_norm
+except NameError:
+    print("❌ 变量 'power_data4_norm' 未定义。请先运行之前的盲测代码。")
+    raise
+
+try:
+    mask
+except NameError:
+    print("⚠️ 变量 'mask' 未定义，将重新定义窄带范围 (0.10-0.28)。")
+    mask = (freqs > 0.10) & (freqs < 0.28)
+
+try:
+    feature_spectra_test
+except NameError:
+    print("❌ 变量 'feature_spectra_test' 未定义。请先运行之前的盲测代码。")
+    raise
+
+print("✅ 所有必要变量已就绪")
+
+# 5. 检查特征频谱中是否包含所有需要的键
+missing_keys = [key_map[m] for m in L_center if key_map[m] not in feature_spectra_test]
+if missing_keys:
+    print(f"⚠️ 以下特征频谱缺失：{missing_keys}")
+    print("当前 feature_spectra_test 的键名：", list(feature_spectra_test.keys()))
+else:
+    print("✅ 所有特征频谱已就绪")
+
+# 6. 计算不同 β 的相关系数
+beta_values = [0.5, 1.0, 1.5, 2.0]
+results = []
+
+for beta in beta_values:
+    weights = build_weights(beta)
+    weighted_spectrum = np.zeros_like(freqs)
+    for m, w in weights.items():
+        name = key_map[m]
+        if name in feature_spectra_test:
+            weighted_spectrum += w * feature_spectra_test[name]
+        else:
+            print(f"⚠️ 跳过 {name}（不存在）")
+    
+    # 检查是否全零
+    if np.allclose(weighted_spectrum, 0):
+        print(f"β = {beta:.1f}: 加权频谱全零，跳过")
+        continue
+    
+    weighted_spectrum /= np.mean(weighted_spectrum)
+    corr, p_val = pearsonr(power_data4_norm[mask], weighted_spectrum[mask])
+    results.append((beta, corr))
+    print(f"β = {beta:.1f}: 相关系数 = {corr:.4f} (p={p_val:.6f})")
+
+# 7. 输出最优结果
+if results:
+    best_beta, best_corr = max(results, key=lambda x: abs(x[1]))
+    print(f"\n最优 β = {best_beta:.1f}, 最优相关系数 = {best_corr:.4f}")
+    
+    # 与等权幂律模型对比（-0.9744）
+    if abs(best_corr) > 0.9744:
+        print("✅ L-中心值模型优于等权幂律模型！")
+        print("   权重与 L(1/2, χ_m) 的相关性得到验证。")
+    else:
+        print("⚠️ L-中心值模型与等权幂律模型性能相近或略低。")
+        print("   可能需要更精细的算术不变量。")
+else:
+    print("❌ 没有有效的计算结果。请检查 feature_spectra_test 的内容。")
