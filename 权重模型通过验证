@@ -1,0 +1,190 @@
+# ============================================================
+# 终极验证：权重模型拟合 + 独立数据盲测
+# 权重模型：w_m = m^{-δ}
+# ============================================================
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import minimize_scalar
+from scipy.stats import pearsonr
+from scipy.signal import lombscargle
+from scipy.stats import gaussian_kde
+from scipy.special import j1
+import urllib.request
+import os
+import warnings
+warnings.filterwarnings('ignore')
+
+# 特征定义函数（与之前相同）
+def chi3(p): r = p % 3; return 1 if r == 1 else -1 if r == 2 else 0
+def chi4(p): r = p % 4; return 1 if r == 1 else -1 if r == 3 else 0
+def chi7(p):
+    r = p % 7
+    if r in [1,2,4]: return 1
+    elif r in [3,5,6]: return -1
+    else: return 0
+def chi8(p):
+    r = p % 8
+    if r in [1,3]: return 1
+    elif r in [5,7]: return -1
+    else: return 0
+def chi13(p):
+    r = p % 13
+    if r in [1,3,4,9,10,12]: return 1
+    elif r in [2,5,6,7,8,11]: return -1
+    else: return 0
+def chi16(p):
+    r = p % 16
+    if r in [1,5,7,11]: return 1
+    elif r in [3,9,13,15]: return -1
+    else: return 0
+
+feature_dict = {'χ₃': chi3, 'χ₄': chi4, 'χ₇': chi7, 'χ₈': chi8, 'χ₁₃': chi13, 'χ₁₆': chi16}
+m_list = [3, 4, 7, 8, 13, 16]
+feature_names = list(feature_dict.keys())
+
+# ============================================================
+# 第1部分：加载数据并构造残差
+# ============================================================
+
+def load_zeros(filename, url):
+    if not os.path.exists(filename):
+        print(f"下载 {filename}...")
+        urllib.request.urlretrieve(url, filename)
+    zeros = []
+    with open(filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    zeros.append(float(line))
+                except ValueError:
+                    continue
+    return np.array(zeros)
+
+def get_residual(zeros):
+    spacings = np.diff(zeros)
+    avg_spacing = np.mean(spacings)
+    norm_spacings = spacings / avg_spacing
+    r_grid = np.linspace(0, 8, 1000)
+    kde = gaussian_kde(norm_spacings, bw_method=0.08)
+    kde_values = kde(r_grid)
+    def gue_pdf(r):
+        return (np.pi * r / 2) * (1 - (np.pi * r / 4)**2) * np.exp(-np.pi * r**2 / 16)
+    residual = kde_values - gue_pdf(r_grid)
+    return r_grid, residual
+
+# 训练数据
+zeros6 = load_zeros('zeros6.txt', 'https://www-users.cse.umn.edu/~odlyzko/zeta_tables/zeros6')
+r_grid, residual6 = get_residual(zeros6)
+
+# 独立测试数据（zeros4）
+zeros4 = load_zeros('zeros4', 'https://www-users.cse.umn.edu/~odlyzko/zeta_tables/zeros4')
+r_grid_test, residual4 = get_residual(zeros4)
+
+print(f"✅ 训练数据: {len(zeros6)} 个零点")
+print(f"✅ 测试数据: {len(zeros4)} 个零点")
+
+# ============================================================
+# 第2部分：计算每个特征的理论频谱（在训练数据上）
+# ============================================================
+
+primes = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]
+alpha = 1 / (2 * np.pi)
+freqs = np.linspace(0.05, 0.5, 2000)
+mask = (freqs > 0.10) & (freqs < 0.28)
+
+# 存储每个特征的归一化频谱
+feature_spectra = {}
+for name, chi_func in feature_dict.items():
+    theoretical = np.zeros_like(r_grid)
+    for p in primes:
+        sign = chi_func(p)
+        if name == 'χ₄' and p == 2:
+            sign = 1
+        if sign != 0:
+            logp = np.log(p)
+            term = sign * alpha * (logp**3 / (p**1.5)) * r_grid * j1(r_grid * logp)
+            theoretical += term
+    power = lombscargle(r_grid, theoretical, 2 * np.pi * freqs)
+    feature_spectra[name] = power / np.mean(power)
+
+# 实际数据频谱
+power_data6 = lombscargle(r_grid, residual6, 2 * np.pi * freqs)
+power_data6_norm = power_data6 / np.mean(power_data6)
+
+# ============================================================
+# 第3部分：权重拟合（幂律模型 w_m = m^{-δ}）
+# ============================================================
+
+def objective(delta):
+    weights = np.array([m**(-delta) for m in m_list])
+    weighted_spectrum = np.zeros_like(freqs)
+    for w, name in zip(weights, feature_names):
+        weighted_spectrum += w * feature_spectra[name]
+    weighted_spectrum /= np.mean(weighted_spectrum)
+    corr, _ = pearsonr(power_data6_norm[mask], weighted_spectrum[mask])
+    return -abs(corr)
+
+res = minimize_scalar(objective, bounds=(0.1, 2.0), method='bounded')
+best_delta = res.x
+best_corr = -res.fun
+
+print(f"\n最优 δ = {best_delta:.3f}")
+print(f"训练数据相关系数 = {best_corr:.4f}")
+
+# ============================================================
+# 第4部分：在独立数据上验证权重模型
+# ============================================================
+
+# 计算测试数据的实际频谱
+power_data4 = lombscargle(r_grid_test, residual4, 2 * np.pi * freqs)
+power_data4_norm = power_data4 / np.mean(power_data4)
+
+# 在测试数据上重新计算每个特征的理论频谱
+feature_spectra_test = {}
+for name, chi_func in feature_dict.items():
+    theoretical = np.zeros_like(r_grid_test)
+    for p in primes:
+        sign = chi_func(p)
+        if name == 'χ₄' and p == 2:
+            sign = 1
+        if sign != 0:
+            logp = np.log(p)
+            term = sign * alpha * (logp**3 / (p**1.5)) * r_grid_test * j1(r_grid_test * logp)
+            theoretical += term
+    power = lombscargle(r_grid_test, theoretical, 2 * np.pi * freqs)
+    feature_spectra_test[name] = power / np.mean(power)
+
+# 用拟合的权重构造叠加频谱
+weights = np.array([m**(-best_delta) for m in m_list])
+weighted_spectrum_test = np.zeros_like(freqs)
+for w, name in zip(weights, feature_names):
+    weighted_spectrum_test += w * feature_spectra_test[name]
+weighted_spectrum_test /= np.mean(weighted_spectrum_test)
+
+# 计算测试数据上的相关系数
+corr_test, _ = pearsonr(power_data4_norm[mask], weighted_spectrum_test[mask])
+
+print(f"测试数据相关系数 = {corr_test:.4f}")
+
+# ============================================================
+# 第5部分：判断与结论
+# ============================================================
+
+print("\n" + "=" * 60)
+print("📊 终极权重模型验证结果")
+print("=" * 60)
+print(f"拟合指数 δ = {best_delta:.3f}")
+print(f"训练数据相关系数 = {best_corr:.4f}")
+print(f"独立测试数据相关系数 = {corr_test:.4f}")
+
+if abs(corr_test) > 0.85:
+    print("\n✅ 权重模型通过独立数据验证！")
+    print("   特征谱的衰减规律具有可预测性，理论获得进一步支持。")
+elif abs(corr_test) > 0.70:
+    print("\n⚠️ 权重模型在测试数据上仍显著，但略低于预期。")
+    print("   可能需要在模型中引入更精细的算术不变量（如 L-中心值）。")
+else:
+    print("\n❌ 权重模型未通过独立数据验证。")
+    print("   当前模型可能过于简化，需引入更复杂的权重函数。")
