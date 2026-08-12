@@ -1,0 +1,85 @@
+# ============================================================
+# 补丁：补全不显著特征（χ₅, χ₉, χ₁₁, χ₁₂）的频谱
+# ============================================================
+
+# 定义缺失的特征函数
+def chi5(p):
+    r = p % 5
+    if r == 1:      return 1
+    elif r == 2:    return -1
+    elif r == 3:    return -1
+    elif r == 4:    return 1
+    else:           return 0
+
+def chi9(p):
+    r = p % 9
+    if r == 1:      return 1
+    elif r == 2:    return 1
+    elif r == 4:    return 1
+    elif r == 5:    return -1
+    elif r == 7:    return -1
+    elif r == 8:    return -1
+    else:           return 0
+
+def chi11(p):
+    r = p % 11
+    if r == 1:      return 1
+    elif r == 2:    return 1
+    elif r == 3:    return 1
+    elif r == 4:    return 1
+    elif r == 5:    return 1
+    elif r == 6:    return -1
+    elif r == 7:    return -1
+    elif r == 8:    return -1
+    elif r == 9:    return -1
+    elif r == 10:   return -1
+    else:           return 0
+
+def chi12(p):
+    r = p % 12
+    if r == 1:      return 1
+    elif r == 5:    return -1
+    elif r == 7:    return -1
+    elif r == 11:   return 1
+    else:           return 0
+
+# 新增特征字典（将不显著特征加入）
+extra_features = {'χ₅': chi5, 'χ₉': chi9, 'χ₁₁': chi11, 'χ₁₂': chi12}
+
+# 在测试数据上计算这些特征的频谱，并存入 feature_spectra_test
+for name, chi_func in extra_features.items():
+    theoretical = np.zeros_like(r_grid_test)
+    for p in primes:
+        sign = chi_func(p)
+        if sign != 0:
+            logp = np.log(p)
+            term = sign * alpha * (logp**3 / (p**1.5)) * r_grid_test * j1(r_grid_test * logp)
+            theoretical += term
+    power = lombscargle(r_grid_test, theoretical, 2 * np.pi * freqs)
+    feature_spectra_test[name] = power / np.mean(power)
+
+print("✅ 不显著特征频谱已补全")
+
+# 现在重新计算显著集和不显著集的等权叠加相关系数
+significant = ['χ₃', 'χ₄', 'χ₇', 'χ₈', 'χ₁₃', 'χ₁₆']
+insignificant = ['χ₅', 'χ₉', 'χ₁₁', 'χ₁₂']
+
+# 显著集叠加
+weighted_sig = np.zeros_like(freqs)
+for name in significant:
+    weighted_sig += feature_spectra_test[name]
+weighted_sig /= np.mean(weighted_sig)
+
+# 不显著集叠加
+weighted_insig = np.zeros_like(freqs)
+for name in insignificant:
+    weighted_insig += feature_spectra_test[name]
+weighted_insig /= np.mean(weighted_insig)
+
+# 计算相关系数（窄带）
+mask = (freqs > 0.10) & (freqs < 0.28)
+corr_sig, _ = pearsonr(power_data4_norm[mask], weighted_sig[mask])
+corr_insig, _ = pearsonr(power_data4_norm[mask], weighted_insig[mask])
+
+print(f"\n显著集等权叠加相关系数: {corr_sig:.4f}")
+print(f"不显著集等权叠加相关系数: {corr_insig:.4f}")
